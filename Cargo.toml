@@ -4,3 +4,7 @@ version = "0.1.0"
 authors = ["Steven Schulte <spschul@umich.edu>"]
 
 [dependencies]
+serde = "1.0.15"
+serde_json = "1.0.3"
+serde_derive = "1.0.15"
+chrono = { version = "0.4", features = ["serde", "rustc-serialize"] }
