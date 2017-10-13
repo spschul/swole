@@ -3,6 +3,7 @@ use std::fs::OpenOptions;
 use std::path::PathBuf;
 use chrono::prelude::*;
 use std::collections::HashMap;
+use std::cmp::Ordering;
 
 extern crate serde;
 extern crate serde_json;
@@ -20,12 +21,14 @@ struct Exercise {
 
 #[derive(Serialize, Deserialize)]
 struct Regimen {
-    exercises: HashMap<String, Exercise>
+    exercises: HashMap<String, Exercise>,
+    last_updated: DateTime<Local>
 }
 
 impl Regimen {
     fn add(&mut self, exer: &str, des: &str) {
         self.exercises.insert(String::from(exer), Exercise { desired: des.parse::<u32>().unwrap(), current: 0, created: Local::now()});
+        println!("Added new exercise {}, with a goal for {} per day.", exer, des);
     }
 
     fn list(&self) {
@@ -35,40 +38,82 @@ impl Regimen {
     }
 
     fn done(&mut self, exer: &str, des: &str) {
-        self.exercises.get_mut(exer).unwrap().current += des.parse::<u32>().unwrap();
+        let exercises_done: u32 = des.parse::<u32>().unwrap();
+        let mut exercise = self.exercises.get_mut(exer).unwrap();
+        exercise.current += exercises_done;
+        print!("{} of {} {} done.", exercise.current, exercise.desired, exer);
+        match exercise.current.cmp(&exercise.desired) {
+            Ordering::Less => println!("Still have {} to go.", exercise.desired - exercise.current),
+            Ordering::Equal => println!("Exercise complete!"),
+            Ordering::Greater => println!("That's {} more than needed!", exercise.current - exercise.desired)
+        }
+    }
+
+    fn delete(&mut self, exer: &str) {
+        if self.exercises.contains_key(exer)
+        {
+            self.exercises.remove(exer);
+            println!("Deleted {}. Was it too hard for you?", exer);
+        } else {
+            println!("No exercise {} to delete!", exer);
+        }
+    }
+
+    fn reset_counts(&mut self) {
+        for (_, details) in &mut self.exercises {
+            details.current = 0;
+        }
     }
 }
 
 fn main() {
-    let file = get_file()
-        .expect("Could not open or create file!");
+    let file = get_file_read()
+        .expect("Could not open file!");
 
     let mut reg: Regimen = serde_json::from_reader(file).unwrap();
 
     let mut args = env::args();
     args.next().expect("Only one argument???");
 
+
+    // If it's not the same day, reset everything
+    if reg.last_updated.date() != Local::now().date()
+    {
+        reg.reset_counts();
+    }
+
+    reg.last_updated = Local::now();
+
     match args.next().expect("TODO proper error").as_ref() {
         "add" => reg.add(args.next().expect("Need exercise name").as_ref(), args.next().expect("Need goal number of reps").as_ref()),
         "list" => reg.list(),
         "done" => reg.done(args.next().expect("Need exercise name").as_ref(), args.next().expect("Need completed number of reps").as_ref()),
+        "delete" => reg.delete(args.next().expect("Need exercise name").as_ref()),
         _ => println!("Not a valid command")
     };
 
-    let file = get_file()
+    let file = get_file_write()
         .expect("Could not open or create file!");
 
     serde_json::to_writer(file, &reg)
         .expect("Could not write to file!");
 }
 
-fn get_file () -> std::result::Result<std::fs::File, std::io::Error> {
+fn get_file_read () -> std::result::Result<std::fs::File, std::io::Error> {
     let mut config = PathBuf::from(env::home_dir().unwrap());
     config.push(".swole.json");
 
     OpenOptions::new()
         .read(true)
+        .open(config)
+}
+
+fn get_file_write () -> std::result::Result<std::fs::File, std::io::Error> {
+    let mut config = PathBuf::from(env::home_dir().unwrap());
+    config.push(".swole.json");
+
+    OpenOptions::new()
         .write(true)
-        .create(true)
+        .truncate(true)
         .open(config)
 }
