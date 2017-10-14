@@ -38,8 +38,14 @@ impl Regimen {
     }
 
     fn done(&mut self, exer: &str, des: &str) {
-        let exercises_done: u32 = des.parse::<u32>().unwrap();
-        let mut exercise = self.exercises.get_mut(exer).unwrap();
+        let mut exercise = match self.exercises.get_mut(exer) {
+            Some(x) => x,
+            None => panic!("{} is not a valid exercise!", exer)
+        };
+        let exercises_done: u32 = match des.parse::<u32>() {
+            Ok(x) => x,
+            Err(e) => panic!("{}", e)
+        };
         exercise.current += exercises_done;
         print!("{} of {} {} done.", exercise.current, exercise.desired, exer);
         match exercise.current.cmp(&exercise.desired) {
@@ -55,7 +61,20 @@ impl Regimen {
             self.exercises.remove(exer);
             println!("Deleted {}. Was it too hard for you?", exer);
         } else {
-            println!("No exercise {} to delete!", exer);
+            panic!("No exercise {} to delete!", exer);
+        }
+    }
+
+    fn goal(&mut self, exer: &str, new_goal: &str) {
+        match self.exercises.get_mut(exer) {
+            Some(exercise) => {
+                exercise.desired = match new_goal.parse::<u32>() {
+                    Ok(x) => x,
+                    Err(err) => panic!("{}", err)
+                };
+                println!("Set goal of {} to {}", exer, new_goal);
+            },
+            None => panic!("{} is not a stored exercise!")
         }
     }
 
@@ -89,7 +108,8 @@ fn main() {
         "list" => reg.list(),
         "done" => reg.done(args.next().expect("Need exercise name").as_ref(), args.next().expect("Need completed number of reps").as_ref()),
         "delete" => reg.delete(args.next().expect("Need exercise name").as_ref()),
-        _ => println!("Not a valid command")
+        "goal" => reg.goal(args.next().expect("Need exercise name").as_ref(), args.next().expect("Need new goal").as_ref()),
+        _ => panic!("Not a valid command")
     };
 
     let file = get_file_write()
