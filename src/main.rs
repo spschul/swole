@@ -12,10 +12,13 @@ extern crate chrono;
 #[macro_use]
 extern crate serde_derive;
 
+const FILE_NAME: &'static str = ".swole.json";
+
+
 #[derive(Serialize, Deserialize)]
 struct Exercise {
+    history: Vec<u32>,
     desired: u32,
-    current: u32,
     created: DateTime<Local>,
 }
 
@@ -26,14 +29,27 @@ struct Regimen {
 }
 
 impl Regimen {
+    pub fn new() -> Regimen {
+        Regimen {
+            exercises: HashMap::new(),
+            last_updated: Local::now()
+        }
+    }
+
     fn add(&mut self, exer: &str, des: &str) {
-        self.exercises.insert(String::from(exer), Exercise { desired: des.parse::<u32>().unwrap(), current: 0, created: Local::now()});
+        if self.exercises.contains_key(exer) {
+            panic!("This exercise has already been added!");
+        }
+        self.exercises.insert(String::from(exer), Exercise { desired: des.parse::<u32>().unwrap(), history: vec![0], created: Local::now()});
         println!("Added new exercise {}, with a goal for {} per day.", exer, des);
     }
 
     fn list(&self) {
         for (name, details) in &self.exercises {
-            println!("{} {}/{}", name, details.current, details.desired);
+            println!("{} {}/{}", name, *details.history.last().unwrap(), details.desired);
+        }
+        if self.exercises.is_empty() {
+            println!("No exercises yet!");
         }
     }
 
@@ -46,12 +62,12 @@ impl Regimen {
             Ok(x) => x,
             Err(e) => panic!("{}", e)
         };
-        exercise.current += exercises_done;
-        print!("{} of {} {} done.", exercise.current, exercise.desired, exer);
-        match exercise.current.cmp(&exercise.desired) {
-            Ordering::Less => println!("Still have {} to go.", exercise.desired - exercise.current),
+        *exercise.history.last_mut().unwrap() += exercises_done;
+        print!("{} of {} {} done.", exercise.history.last().unwrap(), exercise.desired, exer);
+        match exercise.history.last().unwrap().cmp(&exercise.desired) {
+            Ordering::Less => println!("Still have {} to go.", exercise.desired - exercise.history.last().unwrap()),
             Ordering::Equal => println!("Exercise complete!"),
-            Ordering::Greater => println!("That's {} more than needed!", exercise.current - exercise.desired)
+            Ordering::Greater => println!("That's {} more than needed!", exercise.history.last().unwrap() - exercise.desired)
         }
     }
 
@@ -78,32 +94,33 @@ impl Regimen {
         }
     }
 
-    fn reset_counts(&mut self) {
+    fn update_history(&mut self) {
+        self.last_updated = Local::now();
+
         for (_, details) in &mut self.exercises {
-            details.current = 0;
+            let missed_days: i64 = (self.last_updated.date().signed_duration_since(details.created.date())).num_days() + 1 - details.history.len() as i64;
+            for _ in 0..missed_days {
+                details.history.push(0);
+            }
         }
     }
 }
 
 fn main() {
-    let file = get_file_read()
-        .expect("Could not open file!");
+    let mut reg: Regimen = match get_file_read() {
+        Ok(f) => serde_json::from_reader(f).unwrap(),
+        Err(_) => {
+            println!("Can't get {}. Creating a new one.", FILE_NAME);
+            Regimen::new()
+        }
+    };
 
-    let mut reg: Regimen = serde_json::from_reader(file).unwrap();
+    reg.update_history();
 
     let mut args = env::args();
     args.next().expect("Only one argument???");
 
-
-    // If it's not the same day, reset everything
-    if reg.last_updated.date() != Local::now().date()
-    {
-        reg.reset_counts();
-    }
-
-    reg.last_updated = Local::now();
-
-    match args.next().expect("TODO proper error").as_ref() {
+    match args.next().expect("No command provided").as_ref() {
         "add" => reg.add(args.next().expect("Need exercise name").as_ref(), args.next().expect("Need goal number of reps").as_ref()),
         "list" => reg.list(),
         "done" => reg.done(args.next().expect("Need exercise name").as_ref(), args.next().expect("Need completed number of reps").as_ref()),
@@ -121,7 +138,7 @@ fn main() {
 
 fn get_file_read () -> std::result::Result<std::fs::File, std::io::Error> {
     let mut config = PathBuf::from(env::home_dir().unwrap());
-    config.push(".swole.json");
+    config.push(FILE_NAME);
 
     OpenOptions::new()
         .read(true)
@@ -130,10 +147,11 @@ fn get_file_read () -> std::result::Result<std::fs::File, std::io::Error> {
 
 fn get_file_write () -> std::result::Result<std::fs::File, std::io::Error> {
     let mut config = PathBuf::from(env::home_dir().unwrap());
-    config.push(".swole.json");
+    config.push(FILE_NAME);
 
     OpenOptions::new()
         .write(true)
         .truncate(true)
+        .create(true)
         .open(config)
 }
